@@ -1,0 +1,36 @@
+{
+    "name": "Car Rental Agent",
+    "description": "Helps book car rental",
+    "version": "1.0.0",
+    "supported_interfaces": [
+        {
+            "url": "http://localhost:10105/",
+            "protocol_binding": "jsonrpc/http"
+        }
+    ],
+    "capabilities": {
+        "streaming": true,
+        "push_notifications": true
+    },
+    "default_input_modes": [
+        "text",
+        "text/plain"
+    ],
+    "default_output_modes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "book_cars",
+            "name": "Book Car Rental",
+            "description": "Helps with booking car rental given a criteria",
+            "tags": [
+                "Book cars"
+            ],
+            "examples": [
+                "Book a rental car in London, starting on June 20, 2025, and ending on July 10, 2025"
+            ]
+        }
+    ]
+}

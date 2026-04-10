@@ -1,0 +1,36 @@
+{
+    "name": "Langraph Planner Agent",
+    "description": "Helps breakdown a request in to actionable tasks",
+    "version": "1.0.0",
+    "supported_interfaces": [
+        {
+            "url": "http://localhost:10102/",
+            "protocol_binding": "jsonrpc/http"
+        }
+    ],
+    "capabilities": {
+        "streaming": true,
+        "push_notifications": true
+    },
+    "default_input_modes": [
+        "text",
+        "text/plain"
+    ],
+    "default_output_modes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "planner",
+            "name": "Task Planner",
+            "description": "Helps breakdown a request in to actionable tasks",
+            "tags": [
+                "planner"
+            ],
+            "examples": [
+                "Plan my business trip from San Francisco to London, submit an expense report"
+            ]
+        }
+    ]
+}

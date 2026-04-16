@@ -5,8 +5,9 @@ from collections.abc import AsyncIterable
 from enum import Enum
 from uuid import uuid4
 
+import httpx
 import networkx as nx
-from a2a.client import ClientFactory
+from a2a.client import ClientConfig, ClientFactory
 from a2a.types import (
     AgentCard,
     Message,
@@ -44,6 +45,8 @@ class WorkflowNode:
         self.task = task
         self.results = None
         self.state = Status.READY
+        self.remote_task_id = None
+        self.remote_context_id = None
 
     async def get_planner_resource(self) -> AgentCard | None:
         config = get_mcp_server_config()
@@ -61,18 +64,35 @@ class WorkflowNode:
 
     async def run_node(self, query: str, task_id: str, context_id: str) -> AsyncIterable[dict[str, any]]:
         agent_card = await self.get_planner_resource() if self.node_key == 'planner' else await self.find_agent_for_task()
-        client = await ClientFactory.connect(agent_card)
+        httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+        client = await ClientFactory.connect(
+            agent_card,
+            client_config=ClientConfig(httpx_client=httpx_client, streaming=True),
+        )
         message = Message(
             role=Role.ROLE_USER,
             parts=[Part(text=query)],
             message_id=uuid4().hex,
-            task_id=task_id,
-            context_id=context_id,
         )
+        if self.remote_task_id:
+            message.task_id = self.remote_task_id
+        if self.remote_context_id:
+            message.context_id = self.remote_context_id
         request = SendMessageRequest(message=message)
         async for stream_resp, task in client.send_message(request):
-            if stream_resp.WhichOneof('payload') == 'artifact_update':
+            payload_type = stream_resp.WhichOneof('payload')
+            if payload_type == 'status_update':
+                evt = stream_resp.status_update
+                if evt.task_id:
+                    self.remote_task_id = evt.task_id
+                if evt.context_id:
+                    self.remote_context_id = evt.context_id
+            elif payload_type == 'artifact_update':
                 self.results = stream_resp.artifact_update.artifact
+                if stream_resp.artifact_update.task_id:
+                    self.remote_task_id = stream_resp.artifact_update.task_id
+                if stream_resp.artifact_update.context_id:
+                    self.remote_context_id = stream_resp.artifact_update.context_id
             yield (stream_resp, task)
 
 

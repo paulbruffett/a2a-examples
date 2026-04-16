@@ -5,7 +5,7 @@
     "supported_interfaces": [
         {
             "url": "http://localhost:10102/",
-            "protocol_binding": "jsonrpc/http"
+            "protocol_binding": "JSONRPC"
         }
     ],
     "capabilities": {

@@ -132,9 +132,17 @@ class GenericAgentExecutor(AgentExecutor):
                 stream_resp, _ = item
                 payload_type = stream_resp.WhichOneof('payload')
                 if payload_type == 'status_update':
-                    await event_queue.enqueue_event(stream_resp.status_update)
+                    evt = stream_resp.status_update
+                    evt.task_id = task.id
+                    evt.context_id = task.context_id
+                    await event_queue.enqueue_event(evt)
+                    if evt.status.state == TaskState.TASK_STATE_INPUT_REQUIRED:
+                        return
                 elif payload_type == 'artifact_update':
-                    await event_queue.enqueue_event(stream_resp.artifact_update)
+                    evt = stream_resp.artifact_update
+                    evt.task_id = task.id
+                    evt.context_id = task.context_id
+                    await event_queue.enqueue_event(evt)
                 continue
 
             is_task_complete = item['is_task_complete']
@@ -154,7 +162,6 @@ class GenericAgentExecutor(AgentExecutor):
                 await updater.update_status(
                     TaskState.TASK_STATE_INPUT_REQUIRED,
                     new_agent_text_message(item['content'], task.context_id, task.id),
-                    final=True,
                 )
                 break
             await updater.update_status(

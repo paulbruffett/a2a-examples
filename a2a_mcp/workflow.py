@@ -1,6 +1,5 @@
 import json
 import logging
-import uuid
 from collections.abc import AsyncIterable
 from enum import Enum
 from uuid import uuid4
@@ -14,15 +13,12 @@ from a2a.types import (
     Part,
     Role,
     SendMessageRequest,
-    StreamResponse,
-    TaskArtifactUpdateEvent,
     TaskState,
-    TaskStatusUpdateEvent,
 )
 from google.protobuf import json_format
 
 import mcp_client
-from common import get_mcp_server_config
+from common import MCP_HOST, MCP_PORT
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +34,9 @@ class Status(Enum):
 class WorkflowNode:
     """A single node in the workflow graph that finds and invokes an agent."""
 
-    def __init__(self, task: str, node_key: str | None = None, node_label: str | None = None):
-        self.id = str(uuid.uuid4())
+    def __init__(self, task: str, node_key: str | None = None):
+        self.id = uuid4().hex
         self.node_key = node_key
-        self.node_label = node_label
         self.task = task
         self.results = None
         self.state = Status.READY
@@ -49,15 +44,13 @@ class WorkflowNode:
         self.remote_context_id = None
 
     async def get_planner_resource(self) -> AgentCard | None:
-        config = get_mcp_server_config()
-        async with mcp_client.init_session(config.host, config.port, config.transport) as session:
+        async with mcp_client.init_session(MCP_HOST, MCP_PORT) as session:
             response = await mcp_client.find_resource(session, 'resource://agent_cards/planner_agent')
             data = json.loads(response.contents[0].text)
             return json_format.ParseDict(data['agent_card'][0], AgentCard())
 
     async def find_agent_for_task(self) -> AgentCard | None:
-        config = get_mcp_server_config()
-        async with mcp_client.init_session(config.host, config.port, config.transport) as session:
+        async with mcp_client.init_session(MCP_HOST, MCP_PORT) as session:
             result = await mcp_client.find_agent(session, self.task)
             agent_card_json = json.loads(result.content[0].text)
             return json_format.ParseDict(agent_card_json, AgentCard())

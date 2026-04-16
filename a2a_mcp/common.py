@@ -1,9 +1,6 @@
 import json
 import logging
-import os
-import uuid
 from abc import ABC
-from collections.abc import AsyncGenerator
 from typing import Any, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -14,44 +11,18 @@ from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.types import (
     AgentCard,
     Part,
-    StreamResponse,
     Task,
-    TaskArtifactUpdateEvent,
     TaskState,
-    TaskStatusUpdateEvent,
     UnsupportedOperationError,
 )
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import InternalError
-from google.adk.agents import Agent
-from google.adk.events import Event
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 
 logger = logging.getLogger(__name__)
 
-
-# --- Utils ---
-
-class ServerConfig(BaseModel):
-    host: str
-    port: int
-    transport: str
-    url: str
-
-
-def init_api_key():
-    """No-op kept for backward compatibility. API keys are read from env vars by the model backends."""
-    pass
-
-
-def get_mcp_server_config() -> ServerConfig:
-    return ServerConfig(
-        host='localhost', port=10100, transport='sse',
-        url='http://localhost:10100/sse',
-    )
+MCP_HOST = 'localhost'
+MCP_PORT = 10100
 
 
 # --- Types ---
@@ -169,53 +140,8 @@ class GenericAgentExecutor(AgentExecutor):
                 new_agent_text_message(item['content'], task.context_id, task.id),
             )
 
-    def _validate_request(self, context: RequestContext) -> bool:
-        return False
-
     async def cancel(self, request: RequestContext, event_queue: EventQueue) -> Task | None:
         raise InternalError(error=UnsupportedOperationError())
-
-
-# --- ADK Agent Runner ---
-
-class AgentRunner:
-    def __init__(self, app_name: str = 'A2A-MCP', user_id: str = 'user_1'):
-        self.session_service = InMemorySessionService()
-        self.session = None
-        self.app_name = app_name
-        self.user_id = user_id
-
-    async def run_stream(self, agent: Agent, query: str, session_id: str) -> AsyncGenerator[Event, None]:
-        runner = Runner(agent=agent, app_name=self.app_name, session_service=self.session_service)
-        if not session_id:
-            session_id = uuid.uuid4().hex
-        else:
-            self.session = await self.session_service.get_session(
-                app_name=self.app_name, user_id=self.user_id, session_id=session_id,
-            )
-        if not self.session:
-            self.session = await self.session_service.create_session(
-                app_name=self.app_name, user_id=self.user_id, session_id=session_id,
-            )
-        content = types.Content(role='user', parts=[types.Part(text=query)])
-        async for event in runner.run_async(
-            user_id=self.user_id, session_id=self.session.id, new_message=content,
-        ):
-            if event.is_final_response():
-                response = ''
-                if event.content and event.content.parts and event.content.parts[0].text:
-                    response = '\n'.join(p.text for p in event.content.parts if p.text)
-                elif event.content and event.content.parts and any(p.function_response for p in event.content.parts):
-                    response = next(p.function_response.model_dump() for p in event.content.parts)
-                else:
-                    response = f'Error in running agent: {agent.name}'
-                yield {'type': 'final_result', 'response': response}
-            else:
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': f'{agent.name}: Processing request...',
-                }
 
 
 # --- App Builder ---

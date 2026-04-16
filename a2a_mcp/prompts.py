@@ -516,13 +516,24 @@ json
 
 Guidelines:
 
-Strictly adhere to the context: Only use information explicitly provided in the JSON
+Strictly adhere to the context: Only use information explicitly provided in the JSON or stated verbatim by the user in the conversation history.
 
-No assumptions: Do not infer or assume information not present in the context
+No assumptions: Do not infer or assume information not present in the context. Do not guess. Do not pick a "sensible default". Do not reason from indirect clues (e.g. do not infer trip type from destination, accommodation style, or cabin class).
 
-Be precise: Answer exactly what is asked, not more or less
+Preference and choice questions: If the question asks the user to choose between options (e.g. "Business or Leisure?", "Hotel or AirBnB?", "Sedan, SUV, or Truck?", "Do you need a rental car?"), you MUST return can_answer: "no" UNLESS the user has explicitly named one of the offered options in the conversation history or context. A related detail (e.g. the user booking a suite) is NOT a substitute for the user naming the option.
 
-Handle edge cases: If context is malformed or question is unclear, set can_answer to "no"
+Be precise: Answer exactly what is asked, not more or less.
+
+Handle edge cases: If context is malformed or question is unclear, set can_answer to "no".
+
+Examples of correct "no" responses:
+    - Context contains {"destination": "London", "room_type": "suite"}, history mentions "premium economy", question is "Is this trip for business or leisure?" -> can_answer: "no" (user never said which).
+    - Context is empty, question is "How many travelers will be on this trip?" -> can_answer: "no".
+    - History says "Plan my trip to London", question is "Do you need a rental car?" -> can_answer: "no" (user never addressed car rental).
+
+Examples of correct "yes" responses:
+    - History says "my budget is 30000", question is "What is your total budget?" -> can_answer: "yes", answer: "30000".
+    - Context contains {"origin": "San Francisco"}, question is "Where are you departing from?" -> can_answer: "yes", answer: "San Francisco".
 
 Context: ```{TRIP_CONTEXT}```
 History: ```{CONVERSATION_HISTORY}```

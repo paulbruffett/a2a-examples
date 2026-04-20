@@ -1,5 +1,4 @@
 import json
-import logging
 from collections.abc import AsyncIterable
 from enum import Enum
 from uuid import uuid4
@@ -19,8 +18,6 @@ from google.protobuf import json_format
 
 import mcp_client
 from common import MCP_HOST, MCP_PORT
-
-logger = logging.getLogger(__name__)
 
 
 class Status(Enum):
@@ -44,19 +41,28 @@ class WorkflowNode:
         self.remote_context_id = None
 
     async def get_planner_resource(self) -> AgentCard | None:
+        print(f'[MCP] Looking up planner resource at mcp://{MCP_HOST}:{MCP_PORT} ...')
         async with mcp_client.init_session(MCP_HOST, MCP_PORT) as session:
             response = await mcp_client.find_resource(session, 'resource://agent_cards/planner_agent')
             data = json.loads(response.contents[0].text)
-            return json_format.ParseDict(data['agent_card'][0], AgentCard())
+            card = json_format.ParseDict(data['agent_card'][0], AgentCard())
+            endpoint = card.supported_interfaces[0].url if card.supported_interfaces else 'unknown'
+            print(f'[MCP] Found planner agent: {card.name} @ {endpoint}')
+            return card
 
     async def find_agent_for_task(self) -> AgentCard | None:
+        print(f'[MCP] Searching for agent to handle: "{self.task[:80]}..."')
         async with mcp_client.init_session(MCP_HOST, MCP_PORT) as session:
             result = await mcp_client.find_agent(session, self.task)
             agent_card_json = json.loads(result.content[0].text)
-            return json_format.ParseDict(agent_card_json, AgentCard())
+            card = json_format.ParseDict(agent_card_json, AgentCard())
+            endpoint = card.supported_interfaces[0].url if card.supported_interfaces else 'unknown'
+            print(f'[MCP] Matched agent: {card.name} @ {endpoint}')
+            return card
 
     async def run_node(self, query: str, task_id: str, context_id: str) -> AsyncIterable[dict[str, any]]:
         agent_card = await self.get_planner_resource() if self.node_key == 'planner' else await self.find_agent_for_task()
+        print(f'[A2A] Sending to {agent_card.name}: "{query[:80]}..."')
         httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(None))
         client = await ClientFactory.connect(
             agent_card,
@@ -80,12 +86,15 @@ class WorkflowNode:
                     self.remote_task_id = evt.task_id
                 if evt.context_id:
                     self.remote_context_id = evt.context_id
+                state_name = TaskState.Name(evt.status.state)
+                print(f'[A2A] {agent_card.name} status: {state_name}')
             elif payload_type == 'artifact_update':
                 self.results = stream_resp.artifact_update.artifact
                 if stream_resp.artifact_update.task_id:
                     self.remote_task_id = stream_resp.artifact_update.task_id
                 if stream_resp.artifact_update.context_id:
                     self.remote_context_id = stream_resp.artifact_update.context_id
+                print(f'[A2A] Received artifact from {agent_card.name}: {self.results.name}')
             yield (stream_resp, task)
 
 
@@ -112,6 +121,20 @@ class WorkflowGraph:
     def set_node_attributes(self, node_id, attr_val) -> None:
         nx.set_node_attributes(self.graph, {node_id: attr_val})
 
+    def __repr__(self) -> str:
+        if not self.nodes:
+            return '[Workflow] Graph state: (empty)'
+        order = list(nx.topological_sort(self.graph))
+        lines = [f'[Workflow] Graph state: ({self.state.value})']
+        for i, node_id in enumerate(order):
+            node = self.nodes[node_id]
+            label = node.node_key or node.id[:8]
+            task = node.task[:40] + '...' if len(node.task) > 40 else node.task
+            lines.append(f'  [{node.state.value:<9}] {label}: "{task}"')
+            if i < len(order) - 1:
+                lines.append('       ↓')
+        return '\n'.join(lines)
+
     async def run_workflow(self, start_node_id: str | None = None) -> AsyncIterable[dict[str, any]]:
         if not start_node_id or start_node_id not in self.nodes:
             start_nodes = [n for n, d in self.graph.in_degree() if d == 0]
@@ -126,10 +149,13 @@ class WorkflowGraph:
         complete_graph = list(nx.topological_sort(self.graph))
         sub_graph = [n for n in complete_graph if n in applicable_graph]
         self.state = Status.RUNNING
+        print(f'[Workflow] Running {len(sub_graph)} node(s)')
+        print(self)
 
         for node_id in sub_graph:
             node = self.nodes[node_id]
             node.state = Status.RUNNING
+            print(f'[Workflow] Executing node {node.node_key or node.id[:8]}: "{node.task[:60]}..."')
             query = self.graph.nodes[node_id].get('query')
             task_id = self.graph.nodes[node_id].get('task_id')
             context_id = self.graph.nodes[node_id].get('context_id')
@@ -147,5 +173,7 @@ class WorkflowGraph:
                 break
             if node.state == Status.RUNNING:
                 node.state = Status.COMPLETED
+                print(self)
         if self.state == Status.RUNNING:
             self.state = Status.COMPLETED
+            print('[Workflow] All nodes completed')
